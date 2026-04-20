@@ -1,0 +1,96 @@
+###############################################################################
+# SLO Definitions - Healthcare Platform
+# These define the reliability targets the platform team commits to
+###############################################################################
+
+slos:
+  # --- Patient Service ------------------------------------------------------
+  - name: patient-service-availability
+    description: "Patient Service must be available for 99.95% of requests"
+    service: patient-service
+    sli:
+      type: availability
+      metric: |
+        sum(rate(http_requests_total{service="patient-service",code!~"5.."}[5m]))
+        /
+        sum(rate(http_requests_total{service="patient-service"}[5m]))
+    target: 0.9995
+    window: 30d
+    error_budget: 21.6m  # per 30 days
+    alerts:
+      - burn_rate: 14.4   # 2% of budget in 1 hour
+        severity: critical
+        window: 1h
+        notification: pagerduty
+      - burn_rate: 6.0    # 5% of budget in 6 hours
+        severity: warning
+        window: 6h
+        notification: teams
+      - burn_rate: 1.0    # normal burn
+        severity: info
+        window: 3d
+        notification: email
+
+  - name: patient-service-latency
+    description: "99% of Patient Service requests complete within 500ms"
+    service: patient-service
+    sli:
+      type: latency
+      metric: |
+        histogram_quantile(0.99,
+          sum(rate(http_request_duration_seconds_bucket{service="patient-service"}[5m]))
+          by (le)
+        )
+      threshold: 0.5  # 500ms
+    target: 0.99
+    window: 30d
+
+  # --- Clinical Service -----------------------------------------------------
+  - name: clinical-service-availability
+    description: "Clinical Service must be available for 99.9% of requests"
+    service: clinical-service
+    sli:
+      type: availability
+      metric: |
+        sum(rate(http_requests_total{service="clinical-service",code!~"5.."}[5m]))
+        /
+        sum(rate(http_requests_total{service="clinical-service"}[5m]))
+    target: 0.999
+    window: 30d
+    error_budget: 43.2m
+    alerts:
+      - burn_rate: 14.4
+        severity: critical
+        window: 1h
+        notification: pagerduty
+      - burn_rate: 6.0
+        severity: warning
+        window: 6h
+        notification: teams
+
+  - name: clinical-service-latency
+    description: "95% of Clinical AI assessments complete within 10 seconds"
+    service: clinical-service
+    sli:
+      type: latency
+      metric: |
+        histogram_quantile(0.95,
+          sum(rate(http_request_duration_seconds_bucket{service="clinical-service",path="/assess"}[5m]))
+          by (le)
+        )
+      threshold: 10.0  # 10s for AI processing
+    target: 0.95
+    window: 30d
+
+  # --- Platform-wide --------------------------------------------------------
+  - name: platform-error-rate
+    description: "Overall platform error rate must stay below 0.1%"
+    service: "*"
+    sli:
+      type: error_rate
+      metric: |
+        sum(rate(http_requests_total{code=~"5.."}[5m]))
+        /
+        sum(rate(http_requests_total[5m]))
+    target: 0.001  # 0.1%
+    window: 30d

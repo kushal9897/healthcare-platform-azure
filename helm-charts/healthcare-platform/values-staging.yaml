@@ -1,0 +1,50 @@
+###############################################################################
+# Staging Environment Overrides
+###############################################################################
+
+global:
+  imageRegistry: "acrhealthcarestg.azurecr.io"
+  environment: staging
+  domain: staging.healthcare.internal
+
+patient-service:
+  replicaCount: 2
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 6
+
+clinical-service:
+  replicaCount: 2
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 8
+
+notification-service:
+  replicaCount: 1
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 3
+
+analytics-service:
+  replicaCount: 1
+
+ingress:
+  hosts:
+    - host: staging-api.healthcare.internal
+      paths:
+        - path: /patient
+          service: patient-service
+          port: 8000
+        - path: /clinical
+          service: clinical-service
+          port: 8001
+        - path: /notifications
+          service: notification-service
+          port: 8002
+        - path: /analytics
+          service: analytics-service
+          port: 8003
+  tls:
+    - secretName: staging-healthcare-tls
+      hosts:
+        - staging-api.healthcare.internal

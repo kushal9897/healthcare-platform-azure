@@ -1,0 +1,57 @@
+###############################################################################
+# Chaos Experiment: CPU Stress
+# Validates HPA auto-scaling under load
+###############################################################################
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: cpu-stress-clinical
+  namespace: healthcare-production
+spec:
+  appinfo:
+    appns: healthcare-production
+    applabel: "app=clinical-service"
+    appkind: deployment
+  engineState: active
+  chaosServiceAccount: litmus-admin
+  experiments:
+    - name: pod-cpu-hog
+      spec:
+        components:
+          env:
+            - name: CPU_CORES
+              value: "2"
+            - name: TOTAL_CHAOS_DURATION
+              value: "120"
+            - name: CPU_LOAD
+              value: "90"
+        probe:
+          - name: hpa-scaling-check
+            type: cmdProbe
+            cmdProbe/inputs:
+              command: >
+                kubectl get hpa clinical-service -n healthcare-production
+                -o jsonpath='{.status.currentReplicas}'
+              comparator:
+                type: int
+                criteria: ">="
+                value: "3"
+            mode: Edge
+            runProperties:
+              probeTimeout: 120
+              interval: 15
+              retry: 8
+          - name: latency-within-slo
+            type: httpProbe
+            httpProbe/inputs:
+              url: http://clinical-service:8001/health
+              method:
+                get:
+                  criteria: ==
+                  responseCode: "200"
+              responseTimeout: 10000
+            mode: Continuous
+            runProperties:
+              probeTimeout: 10
+              interval: 5
+              retry: 3

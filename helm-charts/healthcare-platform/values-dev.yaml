@@ -1,0 +1,59 @@
+###############################################################################
+# Development Environment Overrides
+###############################################################################
+
+global:
+  imageRegistry: "acrhealthcaredev.azurecr.io"
+  environment: dev
+  domain: dev.healthcare.internal
+
+patient-service:
+  replicaCount: 1
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+clinical-service:
+  replicaCount: 1
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 3
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+notification-service:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+
+analytics-service:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+
+ingress:
+  hosts:
+    - host: dev-api.healthcare.internal
+      paths:
+        - path: /patient
+          service: patient-service
+          port: 8000
+        - path: /clinical
+          service: clinical-service
+          port: 8001
+  tls:
+    - secretName: dev-healthcare-tls
+      hosts:
+        - dev-api.healthcare.internal

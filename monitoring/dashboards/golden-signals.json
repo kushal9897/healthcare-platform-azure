@@ -1,0 +1,108 @@
+{
+  "annotations": { "list": [] },
+  "title": "Healthcare Platform - Golden Signals",
+  "uid": "healthcare-golden-signals",
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "type": "custom",
+        "current": { "text": "healthcare-production", "value": "healthcare-production" },
+        "options": [
+          { "text": "healthcare-dev", "value": "healthcare-dev" },
+          { "text": "healthcare-staging", "value": "healthcare-staging" },
+          { "text": "healthcare-production", "value": "healthcare-production" }
+        ]
+      },
+      {
+        "name": "service",
+        "type": "custom",
+        "current": { "text": "All", "value": "$__all" },
+        "options": [
+          { "text": "All", "value": "$__all" },
+          { "text": "patient-service", "value": "patient-service" },
+          { "text": "clinical-service", "value": "clinical-service" },
+          { "text": "notification-service", "value": "notification-service" },
+          { "text": "analytics-service", "value": "analytics-service" }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Request Rate (Traffic)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{namespace=\"$namespace\",service=~\"$service\"}[5m])) by (service)",
+          "legendFormat": "{{ service }}"
+        }
+      ]
+    },
+    {
+      "title": "Error Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{namespace=\"$namespace\",service=~\"$service\",code=~\"5..\"}[5m])) by (service) / sum(rate(http_requests_total{namespace=\"$namespace\",service=~\"$service\"}[5m])) by (service) * 100",
+          "legendFormat": "{{ service }} error %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.1 },
+              { "color": "red", "value": 1.0 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Latency P50 / P95 / P99",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{namespace=\"$namespace\",service=~\"$service\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"$namespace\",service=~\"$service\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{namespace=\"$namespace\",service=~\"$service\"}[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "title": "CPU & Memory Saturation",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "avg(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\"}[5m])) by (pod) / avg(kube_pod_container_resource_limits{resource=\"cpu\",namespace=\"$namespace\"}) by (pod) * 100",
+          "legendFormat": "{{ pod }} CPU %"
+        }
+      ]
+    },
+    {
+      "title": "SLO Error Budget Remaining",
+      "type": "gauge",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "1 - (sum(increase(http_requests_total{namespace=\"$namespace\",service=~\"$service\",code=~\"5..\"}[30d])) / sum(increase(http_requests_total{namespace=\"$namespace\",service=~\"$service\"}[30d]))) / 0.0005 * 100",
+          "legendFormat": "{{ service }} budget remaining %"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+###############################################################################
+# Chaos Experiment: Availability Zone Failure
+# Validates multi-zone resilience
+###############################################################################
+apiVersion: chaosStudio/v1
+kind: Experiment
+metadata:
+  name: az-failure-test
+  description: "Simulate Azure Availability Zone failure to validate workload distribution"
+spec:
+  # Azure Chaos Studio experiment
+  properties:
+    steps:
+      - name: "Simulate AZ1 Failure"
+        branches:
+          - name: "Drain AZ1 Nodes"
+            actions:
+              - type: continuous
+                name: "aks-node-drain"
+                duration: PT5M
+                parameters:
+                  - key: nodeSelectorType
+                    value: "label"
+                  - key: nodeSelector
+                    value: "topology.kubernetes.io/zone=eastus-1"
+                selectorId: "aks-target"
+
+    selectors:
+      - id: "aks-target"
+        type: "List"
+        targets:
+          - type: "ChaosTarget"
+            id: "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/rg-healthcare-ai/providers/Microsoft.ContainerService/managedClusters/aks-healthcare-ai"
+
+  # Expected outcomes
+  steadyState:
+    - probe: http
+      url: "https://api.healthcare.com/health"
+      method: GET
+      expectedStatus: 200
+      interval: 5s
+      timeout: 3s
+    - probe: kubernetes
+      resource: deployment
+      name: patient-service
+      namespace: healthcare-production
+      condition: "availableReplicas >= 2"
+
+  # Abort conditions
+  abort:
+    - condition: "error_rate > 5%"
+      duration: 2m
+    - condition: "p99_latency > 10s"
+      duration: 1m

@@ -1,0 +1,74 @@
+###############################################################################
+# Reusable Template: GitOps Deployment via Helm values PR
+###############################################################################
+parameters:
+  - name: environment
+    type: string
+  - name: imageTag
+    type: string
+  - name: approvalRequired
+    type: boolean
+    default: true
+  - name: canaryWeight
+    type: string
+    default: '100'
+
+steps:
+  - script: |
+      # Update image tags in the GitOps overlay for this environment
+      OVERLAY_PATH="gitops/apps/overlays/${{ parameters.environment }}"
+
+      # Update kustomization with new image tag
+      cd $OVERLAY_PATH
+
+      # Update the image tag in kustomization.yaml
+      cat > kustomization.yaml <<EOF
+      apiVersion: kustomize.config.k8s.io/v1beta1
+      kind: Kustomization
+      namespace: healthcare-${{ parameters.environment }}
+
+      resources:
+        - ../../base
+
+      patches:
+        - path: patches/replicas.yaml
+        - path: patches/resources.yaml
+
+      images:
+        - name: healthcare/patient-service
+          newTag: "${{ parameters.imageTag }}"
+        - name: healthcare/clinical-service
+          newTag: "${{ parameters.imageTag }}"
+        - name: healthcare/notification-service
+          newTag: "${{ parameters.imageTag }}"
+        - name: healthcare/analytics-service
+          newTag: "${{ parameters.imageTag }}"
+        - name: healthcare/api-gateway
+          newTag: "${{ parameters.imageTag }}"
+        - name: healthcare/ui
+          newTag: "${{ parameters.imageTag }}"
+      EOF
+
+      echo "Updated $OVERLAY_PATH with image tag: ${{ parameters.imageTag }}"
+    displayName: 'Update GitOps overlay (${{ parameters.environment }})'
+
+  - script: |
+      git config user.email "azure-pipelines@healthcare.dev"
+      git config user.name "Azure Pipelines"
+      git add gitops/
+      git commit -m "chore(gitops): deploy ${{ parameters.imageTag }} to ${{ parameters.environment }}
+
+      Triggered by: $(Build.DefinitionName) #$(Build.BuildId)
+      Source: $(Build.SourceVersion)
+      Environment: ${{ parameters.environment }}"
+      git push origin HEAD:main
+    displayName: 'Commit & push GitOps change'
+
+  - script: |
+      echo "Deployment triggered for ${{ parameters.environment }}"
+      echo "   Image tag: ${{ parameters.imageTag }}"
+      echo "   Canary weight: ${{ parameters.canaryWeight }}%"
+      echo ""
+      echo "Flux CD will reconcile within 60 seconds..."
+      echo "Monitor: flux get kustomizations -n flux-system"
+    displayName: 'Deployment summary'

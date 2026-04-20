@@ -1,0 +1,41 @@
+###############################################################################
+# Image Verification Policy - Supply Chain Security
+# Ensures only signed and verified images are deployed
+###############################################################################
+apiVersion: policy.sigstore.dev/v1alpha1
+kind: ClusterImagePolicy
+metadata:
+  name: require-signed-images
+spec:
+  images:
+    - glob: "acrhealthcareprod.azurecr.io/**"
+    - glob: "acrhealthcarestg.azurecr.io/**"
+  authorities:
+    - name: azure-pipelines
+      keyless:
+        url: https://fulcio.sigstore.dev
+        identities:
+          - issuer: https://token.actions.githubusercontent.com
+            subjectRegExp: "https://github.com/kushal9897/healthcare-platform-azure.*"
+      ctlog:
+        url: https://rekor.sigstore.dev
+  mode: enforce
+---
+# SBOM attestation requirement
+apiVersion: policy.sigstore.dev/v1alpha1
+kind: ClusterImagePolicy
+metadata:
+  name: require-sbom-attestation
+spec:
+  images:
+    - glob: "acrhealthcareprod.azurecr.io/**"
+  authorities:
+    - name: sbom-attestation
+      attestations:
+        - name: sbom
+          predicateType: https://spdx.dev/Document
+          policy:
+            type: cue
+            data: |
+              predicateType: "https://spdx.dev/Document"
+  mode: warn

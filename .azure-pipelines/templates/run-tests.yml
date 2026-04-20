@@ -1,0 +1,60 @@
+###############################################################################
+# Reusable Template: Run Tests per Service
+###############################################################################
+parameters:
+  - name: services
+    type: object
+    default: []
+
+jobs:
+  - ${{ each service in parameters.services }}:
+    - job: Test_${{ replace(service.name, '-', '_') }}
+      displayName: 'Test ${{ service.name }}'
+      steps:
+        - task: UsePythonVersion@0
+          inputs:
+            versionSpec: '3.11'
+
+        - script: |
+            cd ${{ service.path }}
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+            pip install pytest pytest-cov pytest-asyncio httpx
+            
+            pytest tests/ \
+              --cov=. \
+              --cov-report=xml:coverage.xml \
+              --cov-report=html:htmlcov/ \
+              --junitxml=test-results.xml \
+              -v --tb=short
+          displayName: 'Run tests for ${{ service.name }}'
+
+        - task: PublishTestResults@2
+          displayName: 'Publish test results'
+          inputs:
+            testResultsFormat: 'JUnit'
+            testResultsFiles: '${{ service.path }}/test-results.xml'
+            testRunTitle: '${{ service.name }} Tests'
+          condition: always()
+
+        - task: PublishCodeCoverageResults@2
+          displayName: 'Publish coverage'
+          inputs:
+            summaryFileLocation: '${{ service.path }}/coverage.xml'
+          condition: always()
+
+        # Enforce minimum coverage
+        - script: |
+            COVERAGE=$(python -c "
+            import xml.etree.ElementTree as ET
+            tree = ET.parse('${{ service.path }}/coverage.xml')
+            root = tree.getroot()
+            print(f'{float(root.attrib[\"line-rate\"]) * 100:.1f}')
+            ")
+            echo "Coverage: ${COVERAGE}%"
+            
+            if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+              echo "##vso[task.logissue type=error]Coverage ${COVERAGE}% is below 80% threshold"
+              exit 1
+            fi
+          displayName: 'Enforce 80% coverage gate'

@@ -1,0 +1,48 @@
+###############################################################################
+# OPA Gatekeeper: Deny Privileged Containers (HIPAA requirement)
+###############################################################################
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8spsprivilegedcontainer
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sPSPPrivilegedContainer
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8spsprivilegedcontainer
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.template.spec.containers[_]
+          container.securityContext.privileged == true
+          msg := sprintf("Privileged container '%v' is not allowed (HIPAA violation)", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.template.spec.containers[_]
+          container.securityContext.allowPrivilegeEscalation == true
+          msg := sprintf("Privilege escalation not allowed for '%v' (HIPAA violation)", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.template.spec.containers[_]
+          not container.securityContext.runAsNonRoot
+          msg := sprintf("Container '%v' must set runAsNonRoot: true", [container.name])
+        }
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPPrivilegedContainer
+metadata:
+  name: deny-privileged-containers
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+    namespaces:
+      - healthcare-dev
+      - healthcare-staging
+      - healthcare-production

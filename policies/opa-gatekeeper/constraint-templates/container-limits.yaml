@@ -1,0 +1,56 @@
+###############################################################################
+# OPA Gatekeeper: Enforce Container Resource Limits
+###############################################################################
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8scontainerlimits
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sContainerLimits
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            maxCpu:
+              type: string
+            maxMemory:
+              type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8scontainerlimits
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.template.spec.containers[_]
+          not container.resources.limits
+          msg := sprintf("Container '%v' has no resource limits defined", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.template.spec.containers[_]
+          not container.resources.limits.cpu
+          msg := sprintf("Container '%v' has no CPU limit", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.template.spec.containers[_]
+          not container.resources.limits.memory
+          msg := sprintf("Container '%v' has no memory limit", [container.name])
+        }
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sContainerLimits
+metadata:
+  name: container-must-have-limits
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet"]
+    namespaces:
+      - healthcare-dev
+      - healthcare-staging
+      - healthcare-production

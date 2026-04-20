@@ -1,0 +1,23 @@
+{{- range $name, $svc := .Values }}
+{{- if and (kindIs "map" $svc) (hasKey $svc "enabled") }}
+{{- if $svc.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+spec:
+  type: {{ $svc.service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ $svc.service.port }}
+      targetPort: {{ $svc.service.port }}
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,190 @@
+###############################################################################
+# Infrastructure Pipeline
+# Provisions and updates Azure resources via Terraform
+###############################################################################
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - infrastructure/terraform/**
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - group: healthcare-platform-infra
+  - name: TF_VERSION
+    value: '1.5.7'
+  - name: TF_WORKING_DIR
+    value: 'infrastructure/terraform'
+
+stages:
+  # Stage 1: Validate & Plan
+  - stage: Validate
+    displayName: 'Terraform Validate & Plan'
+    jobs:
+      - job: TerraformPlan
+        displayName: 'Plan Infrastructure'
+        steps:
+          - task: TerraformInstaller@1
+            inputs:
+              terraformVersion: '$(TF_VERSION)'
+
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Init'
+            inputs:
+              provider: 'azurerm'
+              command: 'init'
+              workingDirectory: '$(TF_WORKING_DIR)'
+              backendServiceArm: 'azure-service-connection'
+              backendAzureRmResourceGroupName: 'rg-terraform-state'
+              backendAzureRmStorageAccountName: 'sthealthcareaitfstate'
+              backendAzureRmContainerName: 'tfstate'
+              backendAzureRmKey: 'healthcare-ai.terraform.tfstate'
+
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Validate'
+            inputs:
+              command: 'validate'
+              workingDirectory: '$(TF_WORKING_DIR)'
+
+          # Security scan IaC before applying
+          - script: |
+              pip install checkov
+              checkov -d $(TF_WORKING_DIR) \
+                --framework terraform \
+                --output junitxml > checkov-results.xml
+            displayName: 'Checkov IaC Security Scan'
+            continueOnError: true
+
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: 'checkov-results.xml'
+              testRunTitle: 'Checkov IaC Scan'
+            condition: always()
+
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Plan'
+            inputs:
+              provider: 'azurerm'
+              command: 'plan'
+              workingDirectory: '$(TF_WORKING_DIR)'
+              commandOptions: '-out=tfplan -detailed-exitcode'
+              environmentServiceNameAzureRM: 'azure-service-connection'
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Plan'
+            inputs:
+              targetPath: '$(TF_WORKING_DIR)/tfplan'
+              artifact: 'terraform-plan'
+
+  # Stage 2: Apply to Dev
+  - stage: ApplyDev
+    displayName: 'Apply to Dev'
+    dependsOn: Validate
+    jobs:
+      - deployment: TerraformApplyDev
+        displayName: 'Apply to Dev Environment'
+        environment: 'infrastructure-dev'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: TerraformInstaller@1
+                  inputs:
+                    terraformVersion: '$(TF_VERSION)'
+
+                - task: DownloadPipelineArtifact@2
+                  inputs:
+                    artifact: 'terraform-plan'
+                    path: '$(TF_WORKING_DIR)'
+
+                - task: TerraformTaskV4@4
+                  displayName: 'Terraform Apply (Dev)'
+                  inputs:
+                    provider: 'azurerm'
+                    command: 'apply'
+                    workingDirectory: '$(TF_WORKING_DIR)'
+                    commandOptions: '-var="environment=dev" -auto-approve'
+                    environmentServiceNameAzureRM: 'azure-service-connection'
+
+  # Stage 3: Apply to Production (manual gate)
+  - stage: ApplyProd
+    displayName: 'Apply to Production'
+    dependsOn: ApplyDev
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: TerraformApplyProd
+        displayName: 'Apply to Production Environment'
+        environment: 'infrastructure-production'  # Manual approval required
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: TerraformInstaller@1
+                  inputs:
+                    terraformVersion: '$(TF_VERSION)'
+
+                - task: TerraformTaskV4@4
+                  displayName: 'Terraform Init (Prod)'
+                  inputs:
+                    provider: 'azurerm'
+                    command: 'init'
+                    workingDirectory: '$(TF_WORKING_DIR)'
+                    backendServiceArm: 'azure-service-connection-prod'
+                    backendAzureRmResourceGroupName: 'rg-terraform-state-prod'
+                    backendAzureRmStorageAccountName: 'sthealthcareaitfstatep'
+                    backendAzureRmContainerName: 'tfstate'
+                    backendAzureRmKey: 'healthcare-ai-prod.terraform.tfstate'
+
+                - task: TerraformTaskV4@4
+                  displayName: 'Terraform Apply (Prod)'
+                  inputs:
+                    provider: 'azurerm'
+                    command: 'apply'
+                    workingDirectory: '$(TF_WORKING_DIR)'
+                    commandOptions: '-var="environment=prod" -auto-approve'
+                    environmentServiceNameAzureRM: 'azure-service-connection-prod'
+
+  # Stage 4: Drift Detection (Scheduled)
+  - stage: DriftDetection
+    displayName: 'Drift Detection'
+    dependsOn: []
+    condition: eq(variables['Build.Reason'], 'Schedule')
+    jobs:
+      - job: DetectDrift
+        displayName: 'Check Infrastructure Drift'
+        steps:
+          - task: TerraformInstaller@1
+            inputs:
+              terraformVersion: '$(TF_VERSION)'
+
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Plan (Drift Check)'
+            inputs:
+              provider: 'azurerm'
+              command: 'plan'
+              workingDirectory: '$(TF_WORKING_DIR)'
+              commandOptions: '-detailed-exitcode -var="environment=prod"'
+              environmentServiceNameAzureRM: 'azure-service-connection-prod'
+
+          - script: |
+              if [ $? -eq 2 ]; then
+                echo "##vso[task.logissue type=warning]Infrastructure drift detected!"
+                echo "##vso[task.logissue type=warning]Review terraform plan output above"
+              else
+                echo "No infrastructure drift detected"
+              fi
+            displayName: 'Report drift status'
+
+schedules:
+  - cron: '0 6 * * 1-5'
+    displayName: 'Weekday drift detection (6 AM UTC)'
+    branches:
+      include:
+        - main
+    always: true

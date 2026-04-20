@@ -1,0 +1,56 @@
+###############################################################################
+# Reusable Template: Build & Push Container Image to ACR
+###############################################################################
+parameters:
+  - name: services
+    type: object
+    default: []
+
+jobs:
+  - ${{ each service in parameters.services }}:
+    - job: Build_${{ replace(service.name, '-', '_') }}
+      displayName: 'Build ${{ service.name }}'
+      steps:
+        - task: Docker@2
+          displayName: 'Build ${{ service.name }}'
+          inputs:
+            containerRegistry: '$(ACR_SERVICE_CONNECTION)'
+            repository: 'healthcare/${{ service.name }}'
+            command: 'build'
+            Dockerfile: '${{ service.dockerfile }}'
+            buildContext: '${{ service.context }}'
+            tags: |
+              $(Build.BuildId)
+              $(Build.SourceVersion)
+              latest
+            arguments: '--build-arg BUILD_ID=$(Build.BuildId)'
+
+        # Scan image before pushing
+        - script: |
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:latest image \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --no-progress \
+              $(ACR_LOGIN_SERVER)/healthcare/${{ service.name }}:$(Build.BuildId)
+          displayName: 'Trivy scan ${{ service.name }}'
+
+        - task: Docker@2
+          displayName: 'Push ${{ service.name }}'
+          inputs:
+            containerRegistry: '$(ACR_SERVICE_CONNECTION)'
+            repository: 'healthcare/${{ service.name }}'
+            command: 'push'
+            tags: |
+              $(Build.BuildId)
+              $(Build.SourceVersion)
+              latest
+
+        # Sign image with Notation
+        - script: |
+            notation sign \
+              --signature-format cose \
+              $(ACR_LOGIN_SERVER)/healthcare/${{ service.name }}:$(Build.BuildId)
+          displayName: 'Sign image ${{ service.name }}'
+          condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')

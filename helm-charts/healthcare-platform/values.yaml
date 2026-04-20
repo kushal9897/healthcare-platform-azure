@@ -1,0 +1,190 @@
+###############################################################################
+# Healthcare Platform - Base Values
+# Override per environment using values-<env>.yaml
+###############################################################################
+
+global:
+  imageRegistry: ""  # Set per environment (e.g., acrhealthcare.azurecr.io)
+  imagePullSecrets:
+    - name: acr-secret
+  environment: dev
+  domain: healthcare.internal
+
+# --- Patient Service ---------------------------------------------------------
+
+patient-service:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: healthcare/patient-service
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+  env:
+    - name: SERVICE_NAME
+      value: patient-service
+    - name: LOG_LEVEL
+      value: INFO
+    - name: FHIR_BASE_URL
+      valueFrom:
+        secretKeyRef:
+          name: healthcare-secrets
+          key: fhir-base-url
+    - name: AZURE_OPENAI_KEY
+      valueFrom:
+        secretKeyRef:
+          name: healthcare-secrets
+          key: azure-openai-key
+  probes:
+    liveness:
+      path: /health
+      initialDelaySeconds: 15
+      periodSeconds: 10
+    readiness:
+      path: /ready
+      initialDelaySeconds: 5
+      periodSeconds: 5
+  podDisruptionBudget:
+    minAvailable: 1
+
+# --- Clinical Service --------------------------------------------------------
+
+clinical-service:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: healthcare/clinical-service
+    tag: latest
+    pullPolicy: Always
+  service:
+    type: ClusterIP
+    port: 8001
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 15
+    targetCPUUtilization: 65
+  env:
+    - name: SERVICE_NAME
+      value: clinical-service
+    - name: AZURE_OPENAI_DEPLOYMENT
+      value: gpt-4
+  probes:
+    liveness:
+      path: /health
+      initialDelaySeconds: 20
+      periodSeconds: 15
+    readiness:
+      path: /ready
+      initialDelaySeconds: 10
+      periodSeconds: 5
+  podDisruptionBudget:
+    minAvailable: 1
+
+# --- Notification Service ----------------------------------------------------
+
+notification-service:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: healthcare/notification-service
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 8002
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilization: 75
+
+# --- Analytics Service -------------------------------------------------------
+
+analytics-service:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: healthcare/analytics-service
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 8003
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# --- Ingress -----------------------------------------------------------------
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: api.healthcare.internal
+      paths:
+        - path: /patient
+          service: patient-service
+          port: 8000
+        - path: /clinical
+          service: clinical-service
+          port: 8001
+        - path: /notifications
+          service: notification-service
+          port: 8002
+        - path: /analytics
+          service: analytics-service
+          port: 8003
+  tls:
+    - secretName: healthcare-tls
+      hosts:
+        - api.healthcare.internal
+
+# --- Service Mesh ------------------------------------------------------------
+
+serviceMesh:
+  enabled: false  # Enable for mTLS between services
+
+# --- Monitoring --------------------------------------------------------------
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+  prometheusRule:
+    enabled: true

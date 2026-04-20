@@ -1,0 +1,110 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "actionGroupId": {
+      "type": "string",
+      "metadata": {
+        "description": "Action Group resource ID for alert notifications"
+      }
+    },
+    "aksResourceId": {
+      "type": "string"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Insights/metricAlerts",
+      "apiVersion": "2018-03-01",
+      "name": "aks-node-cpu-critical",
+      "location": "global",
+      "properties": {
+        "description": "AKS node CPU usage exceeds 85%",
+        "severity": 1,
+        "enabled": true,
+        "scopes": ["[parameters('aksResourceId')]"],
+        "evaluationFrequency": "PT1M",
+        "windowSize": "PT5M",
+        "criteria": {
+          "odata.type": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+          "allOf": [
+            {
+              "name": "node-cpu-high",
+              "metricName": "node_cpu_usage_percentage",
+              "operator": "GreaterThan",
+              "threshold": 85,
+              "timeAggregation": "Average"
+            }
+          ]
+        },
+        "actions": [
+          {
+            "actionGroupId": "[parameters('actionGroupId')]"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Insights/metricAlerts",
+      "apiVersion": "2018-03-01",
+      "name": "aks-node-memory-critical",
+      "location": "global",
+      "properties": {
+        "description": "AKS node memory usage exceeds 90%",
+        "severity": 1,
+        "enabled": true,
+        "scopes": ["[parameters('aksResourceId')]"],
+        "evaluationFrequency": "PT1M",
+        "windowSize": "PT5M",
+        "criteria": {
+          "odata.type": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+          "allOf": [
+            {
+              "name": "node-memory-high",
+              "metricName": "node_memory_working_set_percentage",
+              "operator": "GreaterThan",
+              "threshold": 90,
+              "timeAggregation": "Average"
+            }
+          ]
+        },
+        "actions": [
+          {
+            "actionGroupId": "[parameters('actionGroupId')]"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Insights/metricAlerts",
+      "apiVersion": "2018-03-01",
+      "name": "aks-pod-restart-warning",
+      "location": "global",
+      "properties": {
+        "description": "Pods restarting frequently",
+        "severity": 2,
+        "enabled": true,
+        "scopes": ["[parameters('aksResourceId')]"],
+        "evaluationFrequency": "PT5M",
+        "windowSize": "PT15M",
+        "criteria": {
+          "odata.type": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+          "allOf": [
+            {
+              "name": "pod-restarts",
+              "metricName": "restartingContainerCount",
+              "operator": "GreaterThan",
+              "threshold": 3,
+              "timeAggregation": "Total"
+            }
+          ]
+        },
+        "actions": [
+          {
+            "actionGroupId": "[parameters('actionGroupId')]"
+          }
+        ]
+      }
+    }
+  ]
+}

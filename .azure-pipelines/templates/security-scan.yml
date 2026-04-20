@@ -1,0 +1,104 @@
+###############################################################################
+# Reusable Template: Security Scanning (SAST, IaC, Secrets, Dependencies)
+###############################################################################
+parameters:
+  - name: scanTargets
+    type: object
+    default: []
+
+jobs:
+  - job: SAST
+    displayName: 'Static Analysis (SAST)'
+    steps:
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: '3.11'
+
+      - script: |
+          pip install bandit semgrep safety
+          
+          # Bandit - Python SAST
+          bandit -r src/ -f json -o bandit-results.json --severity-level medium || true
+          bandit -r src/ -f screen --severity-level high
+          
+          # Semgrep - Multi-language SAST
+          semgrep --config=auto src/ --json --output=semgrep-results.json || true
+        displayName: 'Run SAST scanners'
+
+      - task: PublishPipelineArtifact@1
+        inputs:
+          targetPath: 'bandit-results.json'
+          artifact: 'sast-bandit'
+        condition: always()
+
+  - job: SecretScan
+    displayName: 'Secret Detection'
+    steps:
+      - script: |
+          pip install detect-secrets
+          detect-secrets scan --all-files --force-use-all-plugins > secrets-baseline.json
+          
+          # Fail if secrets found
+          SECRETS_COUNT=$(python -c "import json; d=json.load(open('secrets-baseline.json')); print(sum(len(v) for v in d.get('results',{}).values()))")
+          if [ "$SECRETS_COUNT" -gt "0" ]; then
+            echo "##vso[task.logissue type=error]Found $SECRETS_COUNT potential secrets in codebase!"
+            exit 1
+          fi
+          echo "No secrets detected"
+        displayName: 'Detect hardcoded secrets'
+
+  - job: DependencyScan
+    displayName: 'Dependency Vulnerability Scan'
+    steps:
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: '3.11'
+
+      - script: |
+          pip install safety pip-audit
+          
+          # Scan each service's requirements
+          for req in src/*/requirements.txt; do
+            echo "Scanning: $req"
+            pip-audit -r "$req" --format=json --output="audit-$(basename $(dirname $req)).json" || true
+          done
+        displayName: 'Scan Python dependencies'
+
+      - task: NodeTool@0
+        inputs:
+          versionSpec: '20'
+
+      - script: |
+          cd src/ui
+          npm audit --json > ../../npm-audit.json || true
+        displayName: 'Scan npm dependencies'
+
+  - job: IaCScan
+    displayName: 'Infrastructure Security Scan'
+    steps:
+      - script: |
+          pip install checkov
+          
+          # Scan Terraform
+          checkov -d infrastructure/terraform/ \
+            --framework terraform \
+            --output cli --output junitxml \
+            --output-file-path . || true
+          
+          # Scan Kubernetes/Helm
+          checkov -d helm-charts/ \
+            --framework helm \
+            --output cli || true
+          
+          # Scan Dockerfiles
+          checkov -d src/ \
+            --framework dockerfile \
+            --output cli || true
+        displayName: 'Run Checkov IaC scanner'
+
+      - task: PublishTestResults@2
+        inputs:
+          testResultsFormat: 'JUnit'
+          testResultsFiles: 'results_junitxml.xml'
+          testRunTitle: 'Checkov Security Scan'
+        condition: always()

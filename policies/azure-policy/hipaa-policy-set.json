@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-08-01/policySetDefinitions.json",
+  "name": "healthcare-hipaa-controls",
+  "properties": {
+    "displayName": "Healthcare HIPAA Compliance Controls",
+    "description": "Policy initiative enforcing HIPAA technical safeguards for the Healthcare AI Platform",
+    "policyType": "Custom",
+    "metadata": {
+      "category": "Healthcare Compliance",
+      "version": "1.0.0"
+    },
+    "policyDefinitions": [
+      {
+        "policyDefinitionId": "/providers/Microsoft.Authorization/policyDefinitions/0a914e76-4921-4c19-b460-a2d36003525a",
+        "comment": "Require encryption at rest for storage accounts"
+      },
+      {
+        "policyDefinitionId": "/providers/Microsoft.Authorization/policyDefinitions/404c3081-a854-4457-ae30-26a93ef643f9",
+        "comment": "Require TLS 1.2 minimum for storage accounts"
+      },
+      {
+        "policyDefinitionId": "/providers/Microsoft.Authorization/policyDefinitions/1a5b4dca-0b6f-4cf5-907c-56316bc1bf3d",
+        "comment": "Require diagnostics on Key Vault"
+      },
+      {
+        "policyDefinitionId": "/providers/Microsoft.Authorization/policyDefinitions/a8eff44f-8c92-45c3-a3fb-9880802d67a7",
+        "comment": "Deploy diagnostic settings for AKS to Log Analytics"
+      },
+      {
+        "policyDefinitionId": "/providers/Microsoft.Authorization/policyDefinitions/febd0533-8e55-448f-b837-bd0e06f16469",
+        "comment": "Kubernetes cluster should not allow privileged containers"
+      },
+      {
+        "policyDefinitionId": "/providers/Microsoft.Authorization/policyDefinitions/95edb821-ddaf-4404-9732-666045e056b4",
+        "comment": "Azure Kubernetes cluster should have RBAC enabled"
+      },
+      {
+        "policyDefinitionId": "/providers/Microsoft.Authorization/policyDefinitions/d9844e8a-1437-4aeb-a32c-0c992f056095",
+        "comment": "Require Azure Defender for Kubernetes"
+      },
+      {
+        "policyDefinitionId": "/providers/Microsoft.Authorization/policyDefinitions/7796937f-307b-4598-941c-67d3a05ebfe7",
+        "comment": "SQL databases should have audit logging enabled"
+      }
+    ]
+  }
+}

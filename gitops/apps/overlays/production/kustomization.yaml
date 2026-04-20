@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: healthcare-production
+
+resources:
+  - ../../base
+
+patches:
+  - path: patches/replicas.yaml
+  - path: patches/resources.yaml
+  - path: patches/pdb.yaml
+
+images:
+  - name: healthcare/patient-service
+    newName: acrhealthcareprod.azurecr.io/healthcare/patient-service
+    newTag: latest
+  - name: healthcare/clinical-service
+    newName: acrhealthcareprod.azurecr.io/healthcare/clinical-service
+    newTag: latest
+  - name: healthcare/notification-service
+    newName: acrhealthcareprod.azurecr.io/healthcare/notification-service
+    newTag: latest
+  - name: healthcare/analytics-service
+    newName: acrhealthcareprod.azurecr.io/healthcare/analytics-service
+    newTag: latest

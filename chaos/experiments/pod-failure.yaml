@@ -1,0 +1,65 @@
+###############################################################################
+# Chaos Experiment: Pod Failure
+# Validates auto-healing and zero-downtime during pod disruptions
+###############################################################################
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-delete
+  namespace: healthcare-production
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+      - apiGroups: ["", "apps"]
+        resources: ["pods", "deployments"]
+        verbs: ["get", "list", "delete"]
+    image: litmuschaos/go-runner:latest
+    args:
+      - -name
+      - pod-delete
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "60"
+      - name: CHAOS_INTERVAL
+        value: "10"
+      - name: FORCE
+        value: "false"
+---
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: patient-service-chaos
+  namespace: healthcare-production
+spec:
+  appinfo:
+    appns: healthcare-production
+    applabel: "app=patient-service"
+    appkind: deployment
+  engineState: active
+  chaosServiceAccount: litmus-admin
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            - name: CHAOS_INTERVAL
+              value: "15"
+            - name: PODS_AFFECTED_PERC
+              value: "50"
+        probe:
+          - name: patient-service-availability
+            type: httpProbe
+            httpProbe/inputs:
+              url: http://patient-service:8000/health
+              method:
+                get:
+                  criteria: ==
+                  responseCode: "200"
+            mode: Continuous
+            runProperties:
+              probeTimeout: 5
+              interval: 2
+              retry: 3

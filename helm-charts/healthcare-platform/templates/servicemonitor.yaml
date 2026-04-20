@@ -1,0 +1,25 @@
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+{{- range $name, $svc := .Values }}
+{{- if and (kindIs "map" $svc) (hasKey $svc "enabled") }}
+{{- if $svc.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  endpoints:
+    - port: http
+      interval: {{ $.Values.monitoring.serviceMonitor.interval }}
+      path: /metrics
+      scrapeTimeout: 10s
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

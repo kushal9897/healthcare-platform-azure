@@ -1,0 +1,162 @@
+###############################################################################
+# Continuous Integration Pipeline
+# Triggers on PRs and feature branches
+# Runs: lint -> test -> SAST -> container build -> container scan
+###############################################################################
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+      - feature/*
+      - hotfix/*
+  paths:
+    exclude:
+      - docs/**
+      - '*.md'
+      - gitops/**
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - group: healthcare-platform-ci
+  - name: DOCKER_BUILDKIT
+    value: 1
+  - name: PYTHON_VERSION
+    value: '3.11'
+  - name: NODE_VERSION
+    value: '20'
+
+stages:
+  # Stage 1: Code Quality & Linting
+  - stage: Lint
+    displayName: 'Code Quality'
+    jobs:
+      - job: PythonLint
+        displayName: 'Python Lint & Format'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '$(PYTHON_VERSION)'
+
+          - script: |
+              pip install ruff black mypy
+              ruff check src/ --output-format=azure
+              black --check src/
+              mypy src/ --ignore-missing-imports
+            displayName: 'Run Python linters'
+
+      - job: TypeScriptLint
+        displayName: 'TypeScript Lint & Format'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '$(NODE_VERSION)'
+
+          - script: |
+              cd src/ui
+              npm ci
+              npx eslint src/ --format=stylish
+              npx prettier --check "src/**/*.{ts,tsx}"
+            displayName: 'Run TypeScript linters'
+
+      - job: IaCLint
+        displayName: 'Infrastructure Lint'
+        steps:
+          - script: |
+              # Terraform format check
+              cd infrastructure/terraform
+              terraform fmt -check -recursive
+
+              # Helm lint
+              helm lint helm-charts/healthcare-platform/
+            displayName: 'Lint IaC and Helm'
+
+  # Stage 2: Testing
+  - stage: Test
+    displayName: 'Tests'
+    dependsOn: Lint
+    jobs:
+      - template: templates/run-tests.yml
+        parameters:
+          services:
+            - name: patient-service
+              path: src/patient-service
+              type: python
+            - name: clinical-service
+              path: src/clinical-service
+              type: python
+            - name: notification-service
+              path: src/notification-service
+              type: python
+            - name: analytics-service
+              path: src/analytics-service
+              type: python
+
+      - job: UITests
+        displayName: 'UI Unit Tests'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '$(NODE_VERSION)'
+          - script: |
+              cd src/ui
+              npm ci
+              npm run test -- --coverage --watchAll=false
+            displayName: 'Run React tests'
+          - task: PublishCodeCoverageResults@2
+            inputs:
+              summaryFileLocation: 'src/ui/coverage/cobertura-coverage.xml'
+
+  # Stage 3: Security Scanning
+  - stage: Security
+    displayName: 'Security Scan'
+    dependsOn: Lint
+    jobs:
+      - template: templates/security-scan.yml
+        parameters:
+          scanTargets:
+            - name: source-code
+              path: src/
+            - name: infrastructure
+              path: infrastructure/
+            - name: helm-charts
+              path: helm-charts/
+
+  # Stage 4: Build Container Images
+  - stage: Build
+    displayName: 'Build & Push'
+    dependsOn:
+      - Test
+      - Security
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - template: templates/build-container.yml
+        parameters:
+          services:
+            - name: patient-service
+              context: src/patient-service
+              dockerfile: src/patient-service/Dockerfile
+            - name: clinical-service
+              context: src/clinical-service
+              dockerfile: src/clinical-service/Dockerfile
+            - name: notification-service
+              context: src/notification-service
+              dockerfile: src/notification-service/Dockerfile
+            - name: analytics-service
+              context: src/analytics-service
+              dockerfile: src/analytics-service/Dockerfile
+            - name: api-gateway
+              context: src/api-gateway
+              dockerfile: src/api-gateway/Dockerfile
+            - name: healthcare-ui
+              context: src/ui
+              dockerfile: src/ui/Dockerfile
